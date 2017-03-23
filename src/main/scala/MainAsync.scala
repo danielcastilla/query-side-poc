@@ -134,7 +134,7 @@ object ActorCuenta {
 
 class Main
 
-object Main extends App {
+object MainAsync extends App {
 
   import scala.concurrent.duration._
 
@@ -144,18 +144,8 @@ object Main extends App {
 
   implicit val ec: ExecutionContext = system.dispatcher
 
-  val servicioCuentas = new SerivicioCuentas(system)
+  val servicioCuentas = new ServicioCuentas(system)
   val servicioHipotecas = new ServicioHipotecas
-
-  val servicios: Map[TipoProducto, Servicio] = Map(
-    Cuenta -> servicioCuentas,
-    Hipoteca -> servicioHipotecas
-  )
-
-  val servicioProductos = new ServicioProductos
-
-  val servicioPosicionesGlobales = new ServicioPosicionesGlobales(servicioProductos, servicios)
-
 
   val actorRefSource = Source.actorRef[TitularAnadidoALaCuenta](100, OverflowStrategy.fail)
 
@@ -200,15 +190,14 @@ object Main extends App {
 
       val Unir = builder.add(Zip[String, String])
 
-      val Comprobar
-      = builder.add(Flow[(String, String)].map(tuple => {
-        logging.info("received " + tuple._1 + " and " + tuple._2)
-        val items = List(tuple._1, tuple._2)
-        if (items.distinct.size == 1 && items.head == "Success")
-          "success"
-        else
-          "failure"
-      }
+      val Comprobar = builder.add(Flow[(String, String)].map(tuple => {
+          logging.info("received " + tuple._1 + " and " + tuple._2)
+          val items = List(tuple._1, tuple._2)
+          if (items.distinct.size == 1 && items.head == "Success")
+            "success"
+          else
+            "failure"
+        }
       ))
 
        Enriquecer ~> Publicar ~> AlaCuenta   ~> Unir.in0
@@ -222,7 +211,18 @@ object Main extends App {
   val sourceActorRef = flow.runWith(actorRefSource, Sink.foreach(msg => logging.info("acknowledge")))._1
 
   implicit def fromFutEToFut[T](v: FutureEither[T]): Future[Either[Error, T]] = convertToFuture(v)
+  
+  implicit val E =  MonadErrorUtil.EFutureEither
+  
+  implicit val servicios: Map[TipoProducto, Servicio[FutureEither]] = Map(
+    Cuenta -> servicioCuentas,
+    Hipoteca -> servicioHipotecas
+  )
 
+  implicit val servicioProductos = new ServicioProductosFutureEither
+  
+  
+  
 
   val route = post {
     path("cuenta" / Segment / "titular" / Segment) {
@@ -252,8 +252,11 @@ object Main extends App {
     }
   } ~ get {
     path("posicion" / Segment) {
+      
+      import ServicioPosicionesGlobales.obtenerPosicionGlobal
+      
       personaId: String => {
-        onComplete(servicioPosicionesGlobales.obtenerPosicionGlobal(personaId)) {
+        onComplete( obtenerPosicionGlobal[FutureEither]( personaId ) ) {
           case scala.util.Success(actualResult) => actualResult match {
             case Left(error) => complete(InternalServerError -> error.description)
             case Right(value) => complete(OK -> value)
@@ -269,20 +272,6 @@ object Main extends App {
 }
 
 
-sealed trait Error {
-  val description: String
-}
-
-case class CuentaNoEncontrada(cuentaId: String) extends Error {
-  override val description = "Cuenta con id " + cuentaId + " no encontrada"
-}
-case class PersonaNoEncontrada(personaId: String) extends Error {
-  override val description = "Persona con id " + personaId + " no encontrada"
-
-}
-case class ErrorGenerico(e: Throwable) extends Error {
-  override val description = "Error generico " + e.getMessage
-}
 
 sealed trait TipoProducto
 case object Tarjeta extends TipoProducto

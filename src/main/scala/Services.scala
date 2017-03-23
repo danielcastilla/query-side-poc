@@ -8,132 +8,92 @@ import akka.pattern.ask
 import scala.concurrent.{ExecutionContext, Promise}
 import scala.util.Try
 import scala.concurrent.duration._
+import cats.MonadError
 
 
-class ServicioProductos {
-
-  def obtenerListaProductos(personaId: String)(implicit ec:ExecutionContext): FutureEither[ListaProductos] = {
-
-    val promis = Promise[ ListaProductos ]()
-
-    new Thread {
-      () =>
-        Thread.sleep( (Math.random() * 1000).toInt)
-      promis.complete(Try( ListaProductos(List("CUENTA-1" -> Cuenta, "2" -> Hipoteca))))
-    }.run()
-
-    // mock
-    FutureEither.successfulWith(promis.future)
-  }
-
+trait ServicioProductos[P[_]] {
+  def obtenerListaProductos(personaId: String): P[ListaProductos]
 }
 
-
-
-trait Servicio {
-  def obtenerInfo(productoId: String)(implicit ec: ExecutionContext): FutureEither[ProductoDTO]
+trait Servicio[P[_]] {
+  def obtenerInfo(productoId: String): P[ProductoDTO]
 }
 
-trait ConPlanA {
-  def planA(productoId: String)(implicit ec: ExecutionContext): FutureEither[Option[ProductoDTO]]
+trait ConPlanA [P[_]] {
+  def planA(productoId: String): P[Option[ProductoDTO]]
 }
 
-trait ConPlanB {
-  def planB(productoId: String)(implicit ec: ExecutionContext): FutureEither[ProductoDTO]
+trait ConPlanB [P[_]] {
+  def planB(productoId: String): P[ProductoDTO]
 }
 
+trait UpdatePlanA[ P[_] ] {
+  def update(  titularAnadido : TitularAnadidoALaCuenta ) : P[String]  
+}
 
-trait ServicioModernizado extends Servicio with ConPlanA with ConPlanB {
+trait ServicioModernizado[P[_]] extends Servicio[P] with ConPlanA[P] with ConPlanB[P] {
 
-  override def obtenerInfo(productoId: String)(implicit ec: ExecutionContext) = {
-    import FutureEither.successful
+  implicit val E : MonadError[P, Error]
 
+  override def obtenerInfo(productoId: String) : P[ProductoDTO] = {
+    
+    import cats.implicits._
+    
     for {
       resultA <- planA(productoId)
       result <- resultA match {
-        case Some( value ) => successful(  value )
+        case Some( value ) => E pure ( value )
         case _ => planB(productoId)
       }
     } yield result
   }
 }
 
-trait ConActores {
-  self: ConPlanA =>
 
-  val actorSystem: ActorSystem
 
-  implicit val timeout: akka.util.Timeout
+object ServicioPosicionesGlobales {
+  
+  import cats.implicits._
+  
+  def obtenerPosicionGlobal[P[_]]( personaId: String )( implicit SP: ServicioProductos[P], S : Map[TipoProducto, Servicio[P]], E : MonadError[P,Error] )  = {
+      
+      for {
 
-  val nombreRegionSharding: String
+        listaProductos <- SP.obtenerListaProductos( personaId )
 
-  def planA(productoId: String)(implicit ec: ExecutionContext): FutureEither[Option[ProductoDTO]] = {
-    val result = (ClusterSharding(actorSystem).shardRegion(nombreRegionSharding) ? ObtenerInfo(productoId))
-      .mapTo[ProductoDTO].map { case NoEncontrada => Option.empty[ProductoDTO]
-    case q:ProductoDTO => Some(q) }
+        listaDetalleProducto <- E pure (listaProductos.productos.map { case (id: String, tipoProducto: TipoProducto) =>  S(tipoProducto).obtenerInfo(id) } )
 
-    FutureEither.successfulWith(result)
+        positionGlobal <- sequence( listaDetalleProducto )
+
+      } yield positionGlobal
+    
   }
+  
+  
+  def sequence[P[_],T](list: List[P[T]])(implicit E: MonadError[P,Error]): P[List[T]] = {
 
-}
+    def _sequence[T](from: List[P[T]], result: P[List[T]]): P[List[T]] = {
 
-class SerivicioCuentas(val actorSystem: ActorSystem) extends ServicioModernizado with ConActores {
+      from match {
 
-  override val nombreRegionSharding: String = ActorCuenta.CuentaRegionName
+        case h :: t  => {
 
-  implicit val timeout: akka.util.Timeout = Timeout(7 seconds)
+          for {
+            
+            x <- h
 
-  override def planB(productoId: String)(implicit ec: ExecutionContext): FutureEither[ProductoDTO] = {
+            list <- _sequence(t, result)
 
-    val promis = Promise[CuentaDTO]()
+          } yield x +: list
 
-    new Thread {
-      () =>
-        Thread.sleep((Math.random() * 1000).toInt)
-      promis.complete(Try(CuentaDTO(productoId, titulares = List("A", s"B"))))
-    }.run()
+        }
 
-    // mock
-    FutureEither.successfulWith(promis.future)
+        case e => result
+
+      }
+    }
+
+    _sequence(list, E pure ( List[T]() ) )
   }
-
-}
-
-
-class ServicioHipotecas extends Servicio {
-  override def obtenerInfo(productoId: String)(implicit ec: ExecutionContext): FutureEither[ProductoDTO] =
-  {
-    val promis = Promise[HipotecaDTO]()
-
-    new Thread {
-      () =>
-        Thread.sleep((Math.random() * 1000).toInt)
-      promis.complete(Try(HipotecaDTO(productoId, total = 250000, restante = 125000, intereses = 5)))
-    }.run()
-
-    // mock
-    FutureEither.successfulWith(promis.future)
-  }
-}
-
-
-class ServicioPosicionesGlobales(servicioProductos: ServicioProductos, servicios: Map[TipoProducto, Servicio])
-                                (implicit val ec: scala.concurrent.ExecutionContext) {
-
-  def obtenerPosicionGlobal(personaId: String) : FutureEither[List[ProductoDTO]] = {
-
-    import FutureEither._
-
-    for {
-
-      listaProductos <- servicioProductos.obtenerListaProductos(personaId)
-
-      listaDetalleProducto <- successful(listaProductos.productos.map { case (id: String, tipoProducto: TipoProducto) =>  servicios(tipoProducto).obtenerInfo(id) } )
-
-      positionGlobal <- sequence(listaDetalleProducto)
-
-    } yield positionGlobal
-
-  }
-
+  
 }

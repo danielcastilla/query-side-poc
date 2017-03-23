@@ -4,7 +4,6 @@ version := "1.0"
 
 scalaVersion := "2.12.1"
 
-
 // the library is available in Bintray's JCenter
 resolvers += Resolver.jcenterRepo
 
@@ -21,6 +20,8 @@ libraryDependencies ++= Seq(
   "org.json4s" %% "json4s-jackson" % "3.5.0",
   "de.heikoseeberger" %% "akka-http-json4s" % "1.11.0",
   "com.github.dnvriend" %% "akka-persistence-inmemory" % "2.4.17.1",
+  "org.typelevel" %% "cats" % "0.9.0",
+  "com.hazelcast" % "hazelcast" % "3.7.6",
   "org.scalactic" %% "scalactic" % "3.0.1",
   "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 )
