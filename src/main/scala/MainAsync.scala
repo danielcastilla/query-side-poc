@@ -136,16 +136,7 @@ class Main
 
 object MainAsync extends App {
 
-  import scala.concurrent.duration._
-
-  implicit val timeout = akka.util.Timeout(10 seconds)
-  implicit val system = ActorSystem("query-side-poc")
-  implicit val materializer = ActorMaterializer()
-
-  implicit val ec: ExecutionContext = system.dispatcher
-
-  val servicioCuentas = new ServicioCuentas(system)
-  val servicioHipotecas = new ServicioHipotecas
+  import ServicesImpAsync.Implicits._
 
   val actorRefSource = Source.actorRef[TitularAnadidoALaCuenta](100, OverflowStrategy.fail)
 
@@ -210,20 +201,7 @@ object MainAsync extends App {
 
   val sourceActorRef = flow.runWith(actorRefSource, Sink.foreach(msg => logging.info("acknowledge")))._1
 
-  implicit def fromFutEToFut[T](v: FutureEither[T]): Future[Either[Error, T]] = convertToFuture(v)
   
-  implicit val E =  MonadErrorUtil.EFutureEither
-  
-  implicit val servicios: Map[TipoProducto, Servicio[FutureEither]] = Map(
-    Cuenta -> servicioCuentas,
-    Hipoteca -> servicioHipotecas
-  )
-
-  implicit val servicioProductos = new ServicioProductosFutureEither
-  
-  
-  
-
   val route = post {
     path("cuenta" / Segment / "titular" / Segment) {
       (cuentaId: String, titularId: String) => {

@@ -11,6 +11,39 @@ import scala.concurrent.duration._
 import cats.MonadError
 
 
+object ServicesImpAsync {
+  
+    object Implicits {
+      
+      import scala.concurrent.duration._
+      import akka.stream._
+      import FutureEither._
+      import scala.concurrent.{ExecutionContext, Future}
+      
+
+      implicit val timeout = akka.util.Timeout(10 seconds)
+      implicit val system = ActorSystem("query-side-poc")
+      implicit val materializer = ActorMaterializer()
+
+      implicit val ec: ExecutionContext = system.dispatcher
+
+      implicit def fromFutEToFut[T](v: FutureEither[T]): Future[Either[Error, T]] = convertToFuture(v)
+  
+      implicit val E =  MonadErrorUtil.EFutureEither
+      
+      implicit val servicios: Map[TipoProducto, Servicio[FutureEither]] = Map(
+        Cuenta -> new ServicioCuentas(system),
+        Hipoteca -> new ServicioHipotecas
+      )
+
+      implicit val servicioProductos = new ServicioProductosFutureEither
+      
+    }
+  
+  
+}
+
+
 
 class ServicioProductosFutureEither( implicit ec : ExecutionContext ) extends ServicioProductos[FutureEither] {
 
@@ -53,7 +86,7 @@ trait ConActores {
 
 object MonadErrorUtil {
   
-  import ServicioProductosEither.EitherError
+  import ServiciosSync.EitherError
   
   def EEitherError : MonadError[ EitherError, Error ] = new MonadError[EitherError, Error]  {
     

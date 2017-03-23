@@ -3,13 +3,35 @@ package querysidepoc
 import scala.util.{Right,Either}
 import com.hazelcast.core.HazelcastInstance
 
-object ServicioProductosEither {
-
+object ServiciosSync{
+  
     type EitherError[T] = Either[Error,T]
+
+    object Implicits {
+      
+      import com.hazelcast.core.Hazelcast
+      import com.hazelcast.config.Config
+      import cats.MonadError
+      
+      implicit val hzlInstance = Hazelcast.newHazelcastInstance( new Config )
+      
+      implicit val servCuentas = new ServicioCuentasSync 
+      
+      implicit val EEitherError : MonadError[EitherError,Error] = MonadErrorUtil.EEitherError
+  
+      implicit val serviciosSync: Map[TipoProducto, Servicio[EitherError]] = Map(
+        Cuenta -> servCuentas,
+        Hipoteca -> new ServicioHipotecasSync
+      )
+
+      implicit val servicioProductos = new ServicioProductosSync
+        
+      
+    }
   
 }
 
-import ServicioProductosEither.EitherError
+import ServiciosSync.EitherError
 
 trait ConHazelCast {
   

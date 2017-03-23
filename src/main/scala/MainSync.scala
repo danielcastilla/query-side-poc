@@ -19,26 +19,23 @@ import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.language.{implicitConversions, postfixOps}
 import scala.util.Try
-import ServicioProductosEither.EitherError
+import ServiciosSync.EitherError
 import FutureEither.convertToFuture
 
 
 object MainSync extends App {
 
   import scala.concurrent.duration._
-  import com.hazelcast.core.Hazelcast
-  import com.hazelcast.config.Config;
   import cats.MonadError
+  import ServiciosSync.Implicits._
   
 
   implicit val timeout = akka.util.Timeout(10 seconds)
   implicit val system = ActorSystem("query-side-poc")
   implicit val materializer = ActorMaterializer()
 
-  implicit val hzlInstance = Hazelcast.newHazelcastInstance( new Config )
 
-  val servicioCuentas = new ServicioCuentasSync
-  val servicioHipotecas = new ServicioHipotecasSync
+  val servicioCuentas = implicitly[ServicioCuentasSync] 
 
   val actorRefSource = Source.actorRef[TitularAnadidoALaCuenta](100, OverflowStrategy.fail)
 
@@ -47,9 +44,7 @@ object MainSync extends App {
   implicit val serialization = jackson.Serialization
   implicit val formats = DefaultFormats
 
-
   val logging = Logging(system, classOf[Main])
-
   
   import akka.stream.scaladsl.GraphDSL.Implicits._
 
@@ -80,14 +75,7 @@ object MainSync extends App {
 
   import ServicioPosicionesGlobales.obtenerPosicionGlobal
   
-  implicit val EEitherError : MonadError[EitherError,Error] = MonadErrorUtil.EEitherError
   
-  implicit val serviciosSync: Map[TipoProducto, Servicio[EitherError]] = Map(
-    Cuenta -> servicioCuentas,
-    Hipoteca -> servicioHipotecas
-  )
-
-  implicit val servicioProductos = new ServicioProductosSync
   
 
   val route = post {
