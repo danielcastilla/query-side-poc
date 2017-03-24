@@ -98,7 +98,7 @@ class ServicioCuentasSync( implicit inst : HazelcastInstance ) extends ServicioM
           
         }
         
-        val cuentaActualizada =  cuenta.copy( titulares = cuenta.titulares :+ titularId ) 
+        val cuentaActualizada =  cuenta.copy( titulares = ( cuenta.titulares.toSet + titularId ).toList ) 
         
         getMap.put( cuentaId, cuentaActualizada )
       
